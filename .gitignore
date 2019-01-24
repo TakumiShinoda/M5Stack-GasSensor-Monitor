@@ -2,3 +2,5 @@
 .piolibdeps
 .travis.yml
 .vscode
+
+src/local_properties.h

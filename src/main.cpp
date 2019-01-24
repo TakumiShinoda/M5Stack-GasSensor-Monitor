@@ -1,5 +1,8 @@
 #include <Arduino.h>
 #include <M5Stack.h>
+#include <WiFi.h>
+#include <HTTPClient.h>
+#include "local_properties.h"
 
 #define HEATER_PIN 5 
 #define VIN_PIN 2
@@ -13,8 +16,10 @@
 #define GRAPH_W WIDTH - GRAPH_X - GRAPH_SPACE
 #define GRAPH_H HEIGHT - GRAPH_Y - GRAPH_SPACE
 #define GRAPH_MAX 4096
-#define GRAPH_MIN 2000
+#define GRAPH_MIN 1500
+#define TRY_CONNECT_AP 10
 
+unsigned long LastPost = millis();
 uint16_t GraphBuff[int(GRAPH_W)] = {0};
 uint16_t graphStartPos[2] = {
   GRAPH_X + 1,
@@ -46,11 +51,44 @@ void setupGraph(){
   drawText(0, HEIGHT - GRAPH_SPACE - int(GRAPH_H), String(GRAPH_MAX), -1, 1);
 }
 
+bool connectAP(){
+  uint8_t cnt = 0;
+
+  WiFi.mode(WIFI_MODE_APSTA);
+  WiFi.disconnect(true);
+  delay(1000);
+  WiFi.begin(SSID, PASS);
+  while (WiFi.status() != WL_CONNECTED && cnt < TRY_CONNECT_AP){
+    delay(500);
+    Serial.print(".");
+    cnt += 1;
+  }
+  if(WiFi.status() != WL_CONNECTED) return false;
+
+  Serial.println("\nWiFi connected.");
+  Serial.println("IP address: ");
+  Serial.println(WiFi.localIP());
+
+  return true;
+}
+
+int sendGETRequest(String host, String uri, uint8_t port = 80){
+  int httpCode = 0;
+  HTTPClient http;
+
+  http.begin(host, port, uri);
+  httpCode = http.GET();
+
+  return httpCode;
+}
+
 void setup(){
+  Serial.begin(115200);
   delay(500);
   M5.begin();
   dacWrite(25, 0);
 
+  connectAP();
   pinMode(HEATER_PIN, OUTPUT);
   pinMode(VIN_PIN, OUTPUT);
   pinMode(SENSOR_PIN, INPUT);
@@ -58,6 +96,7 @@ void setup(){
 }
 
 void loop(){
+  unsigned long now = millis();
   int val = 0;
   double vol = 0;
 
@@ -71,7 +110,7 @@ void loop(){
 
   digitalWrite(HEATER_PIN,LOW); 
   delay(8);
-  digitalWrite(HEATER_PIN,HIGH);  
+  digitalWrite(HEATER_PIN,HIGH);
 
   vol = val * double(3.3 / 4095);
   M5.Lcd.fillRect(0, 0, 100, 20, 0);
@@ -80,4 +119,9 @@ void loop(){
   slideBuff(GraphBuff, sizeof(GraphBuff) / 2); 
   GraphBuff[0] = map(val, GRAPH_MIN, GRAPH_MAX, 0, GRAPH_H - 2);
   updateGraph();
+  if(now - LastPost > 30000){
+    LastPost = now;
+    Serial.print("POST: code ");
+    Serial.println(sendGETRequest(API_GET_HOST, API_GET_URI + String(val)));
+  }
 }
